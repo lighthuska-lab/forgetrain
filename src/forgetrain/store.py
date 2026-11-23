@@ -172,13 +172,8 @@ class Store:
                 leases.append(Lease(name, fence, now + lease_ms))
             return tuple(leases)
 
-    def finish(self, lease: Lease, *, outcome: str, now: int) -> None:
-        if not isinstance(outcome, str) or outcome not in {
-            "succeeded",
-            "failed",
-            "cancelled",
-        }:
-            raise ValueError("invalid terminal outcome")
+    @staticmethod
+    def _validate_receipt(lease: Lease) -> None:
         if not isinstance(lease, Lease):
             raise ValueError("a lease receipt is required")
         if not isinstance(lease.job, str) or not re.fullmatch(
@@ -187,6 +182,15 @@ class Store:
             raise ValueError("invalid receipt job name")
         _integer(lease.fence, "fence", 1, 2**63 - 1)
         _integer(lease.expires, "deadline", 1, 2**54)
+
+    def finish(self, lease: Lease, *, outcome: str, now: int) -> None:
+        if not isinstance(outcome, str) or outcome not in {
+            "succeeded",
+            "failed",
+            "cancelled",
+        }:
+            raise ValueError("invalid terminal outcome")
+        self._validate_receipt(lease)
         with self._transaction() as db:
             self._advance(db, now)
             row = db.execute("SELECT * FROM jobs WHERE name=?", (lease.job,)).fetchone()
@@ -202,6 +206,32 @@ class Store:
                 (outcome, lease.job),
             )
             self._event(db, lease.job, outcome, lease.fence, now)
+
+    def renew(self, lease: Lease, *, now: int, lease_ms: int) -> Lease:
+        """Extend one live receipt atomically; the previous deadline becomes stale.
+
+        The attempt fence is unchanged. The replacement deadline must strictly
+        exceed the current deadline, and is measured from caller time, not added
+        to the old deadline. A receipt at exact expiry cannot be renewed.
+        """
+        self._validate_receipt(lease)
+        _integer(lease_ms, "lease duration", 1, 86400000)
+        with self._transaction() as db:
+            self._advance(db, now)
+            row = db.execute("SELECT * FROM jobs WHERE name=?", (lease.job,)).fetchone()
+            if (
+                row is None
+                or row["state"] != "running"
+                or row["fence"] != lease.fence
+                or row["deadline"] != lease.expires
+            ):
+                raise ValueError("stale or invalid lease receipt")
+            deadline = now + lease_ms
+            if deadline <= lease.expires:
+                raise ValueError("renewal must strictly extend the deadline")
+            db.execute("UPDATE jobs SET deadline=? WHERE name=?", (deadline, lease.job))
+            self._event(db, lease.job, "renewed", lease.fence, now)
+            return Lease(lease.job, lease.fence, deadline)
 
     def cancel_pending(self, name: str, *, now: int) -> None:
         with self._transaction() as db:

@@ -25,8 +25,8 @@ or maximum-attempt policy is implemented; expired leases may be admitted again.
 Every successful state mutation and its audit event is transactional. An exception
 rolls back the entire operation, including clock/expiry housekeeping. Read-only
 `snapshot()` gives one consistent metadata/job/event snapshot and does not expire
-work; a later successful mutation performs recovery. There is no lease renewal,
-plan editing, multi-host coordination, worker process, GPU or training execution.
+work; a later successful mutation performs recovery. There is no plan editing, multi-host coordination, worker process, GPU or
+training execution.
 
 ## Important execution boundary
 
@@ -45,3 +45,21 @@ temporary synthetic plan and advances a logical clock; it never trains a model.
 connections competing for capacity, exact expiry, stale receipt fencing, rollback,
 restart state and a real child process exiting mid-transaction. No throughput or
 training-performance result is claimed.
+
+## Heartbeats through lease renewal
+
+`renew(receipt, now=..., lease_ms=...)` atomically replaces a live deadline with
+`now + lease_ms`, which must strictly exceed the existing deadline. Duration and
+clock limits match admission. The attempt fence stays unchanged, but the changed
+deadline invalidates the previous receipt for both renewal and completion. Always
+replace the worker's receipt with the returned value before its next heartbeat or
+terminal update. Lost renewal responses cannot safely be retried with an old
+receipt; this API intentionally fails stale attempts rather than guessing.
+
+Renewal at or after exact expiry cannot revive an attempt. Expiry/re-admission
+increments its fence as before. Concurrent renewals or a renewal/completion race
+using the same receipt have at most one successful mutation. Deadline, logical
+clock and the renewed audit event commit together or roll back together. A
+renewal preserves the CPU reservation; it does not reserve capacity a second time.
+These receipts remain a cooperative database protocol, not worker authentication,
+a process liveness guarantee or fencing for external writes.

@@ -44,3 +44,7 @@ GPU discovery, training, API server or production deployment is implemented.
 
 See [architecture](docs/architecture.md), [contributing](CONTRIBUTING.md), and
 [security](SECURITY.md). No training performance or model-quality results exist.
+
+Long-running cooperative workers can extend a live reservation with
+`Store.renew(receipt, now=..., lease_ms=...)`. Use the returned replacement receipt;
+old receipts become stale. See [renewal semantics](docs/durable-admission.md).
