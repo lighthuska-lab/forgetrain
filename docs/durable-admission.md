@@ -1,0 +1,47 @@
+# Transactional CPU admission
+
+`Store.create(path, plan, capacity=...)` creates one trusted local SQLite database
+exclusively; an existing file is never overwritten. Capacity is an integer 1–1024.
+The plan is validated again before any file is created. Each database owns a fixed
+plan/capacity. `Store(path)` reopens it without resetting state.
+
+`admit(now=..., lease_ms=...)` uses BEGIN IMMEDIATE to recover expired leases,
+calculate free reserved capacity and admit ready jobs atomically in declaration
+order. Separate connections serialize reservations. SQLite FULL synchronous
+commits preserve the reservation, fencing counter and audit event together.
+Deadlines are integer milliseconds; durations are 1–86,400,000 ms. Caller times
+must be nondecreasing across successful mutations. Use a consistent trusted clock;
+a forward jump can expire work early. This API does not authenticate timestamps.
+
+Admission returns immutable Lease(job, fence, expires) receipts. `finish(receipt,
+outcome=..., now=...)` accepts succeeded/failed/cancelled only for the current live
+receipt. Expiry occurs exactly at the deadline, requeues the job and releases its
+logical reservation. The next admission increments the fencing counter. Old
+receipts cannot finish or cancel a newer attempt. A pending task can be cancelled
+through `cancel_pending`; running cancellation requires its current receipt.
+Failure and cancellation block descendants. No automatic retry of terminal failures
+or maximum-attempt policy is implemented; expired leases may be admitted again.
+
+Every successful state mutation and its audit event is transactional. An exception
+rolls back the entire operation, including clock/expiry housekeeping. Read-only
+`snapshot()` gives one consistent metadata/job/event snapshot and does not expire
+work; a later successful mutation performs recovery. There is no lease renewal,
+plan editing, multi-host coordination, worker process, GPU or training execution.
+
+## Important execution boundary
+
+Reservations are logical accounting, not OS CPU enforcement. Expiry does not kill
+an old worker. Receipts fence database mutations only: external artifact writes or
+still-running work need a future worker/artifact protocol before physical-resource
+safety can be claimed. Do not use this store as proof that a timed-out process has
+stopped. Database access is trusted; receipts are not authorization credentials.
+Use local SQLite storage, not a network filesystem; schema migration is absent.
+
+## Reproduce
+
+After installing the package, run `python examples/durable_demo.py`. It creates a
+temporary synthetic plan and advances a logical clock; it never trains a model.
+`python -m unittest discover -s tests -v` covers eight simultaneous independent
+connections competing for capacity, exact expiry, stale receipt fencing, rollback,
+restart state and a real child process exiting mid-transaction. No throughput or
+training-performance result is claimed.
