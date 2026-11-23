@@ -1,0 +1,1 @@
+{"version":1,"jobs":[{"name":"prepare","needs":[],"cpus":1},{"name":"train","needs":["prepare"],"cpus":2},{"name":"evaluate","needs":["train"],"cpus":1}]}
