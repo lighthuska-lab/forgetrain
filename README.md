@@ -48,3 +48,10 @@ See [architecture](docs/architecture.md), [contributing](CONTRIBUTING.md), and
 Long-running cooperative workers can extend a live reservation with
 `Store.renew(receipt, now=..., lease_ms=...)`. Use the returned replacement receipt;
 old receipts become stale. See [renewal semantics](docs/durable-admission.md).
+
+## Artifact provenance
+
+A separate [local artifact registry](docs/artifact-registry.md) records bounded
+file SHA-256, byte size and immutable declared provenance. Run
+`python examples/artifact_demo.py` after installation for a disposable synthetic
+demo. This does not load, authenticate or validate trained checkpoints.

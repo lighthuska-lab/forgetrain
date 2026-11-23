@@ -11,3 +11,6 @@ receipts, durable events and rollback/concurrency/crash tests. No worker executi
 
 Unreleased: transactional lease renewal with replacement receipts, stale-heartbeat
 fencing, concurrent renewal/completion tests and rollback coverage.
+
+Unreleased: bounded local artifact hashing, immutable provenance registration,
+verification of file drift and transactional/concurrency/crash regression tests.

@@ -10,3 +10,9 @@ requires explicit capabilities, isolation and a threat-model review.
 The SQLite store assumes trusted exclusive database-file ownership. Lease expiry
 releases logical capacity without terminating an external worker; fencing only
 protects database updates. See docs/durable-admission.md before connecting workers.
+
+The artifact registry accepts only bounded regular files under its fixed trusted
+root, rejects descendant symlinks/path escape and never loads model formats.
+Filesystem checks require frozen trusted files and are not hostile-race isolation.
+Registry provenance does not authenticate producers or establish checkpoint safety.
+Relative paths and metadata can be sensitive; review reports before sharing.
