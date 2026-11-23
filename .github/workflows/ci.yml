@@ -18,4 +18,5 @@ jobs:
       - run: python -m unittest discover -s tests
       - run: mypy
       - run: python examples/durable_demo.py
+      - run: python examples/artifact_demo.py
       - run: python -m build
