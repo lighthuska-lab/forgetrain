@@ -161,6 +161,116 @@ os._exit(19)
             Store(missing)
         self.assertFalse(missing.exists())
 
+    def test_renewal_survives_restart_preserves_capacity_and_invalidates_old_receipt(
+        self,
+    ):
+        (old,) = self.store.admit(now=0, lease_ms=10)
+        fresh = Store(self.path).renew(old, now=5, lease_ms=20)
+        self.assertEqual(fresh, Lease(old.job, old.fence, 25))
+        self.assertEqual(Store(self.path).admit(now=11, lease_ms=10), ())
+        for operation in [
+            lambda: self.store.finish(old, outcome="succeeded", now=12),
+            lambda: self.store.renew(old, now=12, lease_ms=30),
+        ]:
+            before = self.store.snapshot()
+            with self.assertRaisesRegex(ValueError, "stale"):
+                operation()
+            self.assertEqual(self.store.snapshot(), before)
+        Store(self.path).finish(fresh, outcome="succeeded", now=13)
+        self.assertEqual(
+            [event["kind"] for event in self.store.snapshot()["events"]],
+            ["admitted", "renewed", "succeeded"],
+        )
+
+    def test_renewal_cannot_shorten_or_keep_deadline(self):
+        (old,) = self.store.admit(now=0, lease_ms=10)
+        for duration in [1, 5]:
+            before = self.store.snapshot()
+            with self.assertRaisesRegex(ValueError, "strictly extend"):
+                self.store.renew(old, now=5, lease_ms=duration)
+            self.assertEqual(self.store.snapshot(), before)
+
+    def test_renewal_at_expiry_or_after_terminal_state_fails(self):
+        (old,) = self.store.admit(now=0, lease_ms=10)
+        with self.assertRaisesRegex(ValueError, "stale"):
+            self.store.renew(old, now=10, lease_ms=20)
+        (new,) = self.store.admit(now=10, lease_ms=10)
+        with self.assertRaisesRegex(ValueError, "stale"):
+            self.store.renew(old, now=11, lease_ms=20)
+        self.store.finish(new, outcome="cancelled", now=12)
+        with self.assertRaisesRegex(ValueError, "stale"):
+            self.store.renew(new, now=13, lease_ms=20)
+
+    def test_concurrent_renewals_have_exactly_one_winner(self):
+        (receipt,) = self.store.admit(now=0, lease_ms=10)
+        barrier = threading.Barrier(6)
+
+        def renew(_):
+            local = Store(self.path)
+            barrier.wait(timeout=10)
+            try:
+                return local.renew(receipt, now=5, lease_ms=20)
+            except ValueError:
+                return None
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
+            results = list(pool.map(renew, range(6)))
+        self.assertEqual(sum(result is not None for result in results), 1)
+        self.assertEqual(self.store.snapshot()["jobs"][0]["deadline"], 25)
+        self.assertEqual(
+            [event["kind"] for event in self.store.snapshot()["events"]],
+            ["admitted", "renewed"],
+        )
+
+    def test_concurrent_renewal_and_completion_cannot_both_succeed(self):
+        (receipt,) = self.store.admit(now=0, lease_ms=10)
+        barrier = threading.Barrier(2)
+
+        def act(renew):
+            local = Store(self.path)
+            barrier.wait(timeout=10)
+            try:
+                if renew:
+                    local.renew(receipt, now=5, lease_ms=20)
+                else:
+                    local.finish(receipt, outcome="succeeded", now=5)
+                return True
+            except ValueError:
+                return False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as pool:
+            self.assertEqual(sum(pool.map(act, [True, False])), 1)
+        self.assertEqual(len(self.store.snapshot()["events"]), 2)
+
+    def test_renewal_fault_rolls_back_clock_deadline_and_event(self):
+        (old,) = self.store.admit(now=0, lease_ms=10)
+        before = self.store.snapshot()
+        with patch.object(Store, "_event", side_effect=RuntimeError("injected fault")):
+            with self.assertRaises(RuntimeError):
+                self.store.renew(old, now=5, lease_ms=20)
+        self.assertEqual(self.store.snapshot(), before)
+        self.store.finish(old, outcome="succeeded", now=1)
+
+    def test_renewal_validates_duration_receipt_and_clock(self):
+        (old,) = self.store.admit(now=5, lease_ms=10)
+        before = self.store.snapshot()
+        for duration in [True, 0, 86400001]:
+            with self.assertRaises(ValueError):
+                self.store.renew(old, now=6, lease_ms=duration)
+        for receipt in [
+            None,
+            Lease("../bad", 1, 15),
+            Lease("prepare", True, 15),
+            Lease("prepare", 1, False),
+            Lease("unknown", 1, 15),
+        ]:
+            with self.assertRaises(ValueError):
+                self.store.renew(receipt, now=6, lease_ms=20)
+        for now in [True, -1, 4, 2**53 + 1]:
+            with self.assertRaises(ValueError):
+                self.store.renew(old, now=now, lease_ms=20)
+        self.assertEqual(self.store.snapshot(), before)
+
     def test_unknown_schema_fails_closed(self):
         with sqlite3.connect(self.path) as db:
             db.execute("UPDATE meta SET version=2")

@@ -8,3 +8,6 @@
 
 Unreleased: transactional SQLite CPU reservations, expiry recovery, fencing
 receipts, durable events and rollback/concurrency/crash tests. No worker execution.
+
+Unreleased: transactional lease renewal with replacement receipts, stale-heartbeat
+fencing, concurrent renewal/completion tests and rollback coverage.
