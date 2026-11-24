@@ -277,3 +277,54 @@ class ArtifactRegistry:
             "observed_size_bytes": size,
             "checkpoint_validity_verified": False,
         }
+
+    def audit_page(self, *, limit: int = 5, after: str | None = None) -> dict[str, Any]:
+        """Hash at most ten selected artifacts; preserve failures as redacted outcomes.
+
+        Reads at most 640 MiB in total (ten existing 64 MiB per-file limits).
+        Pages and separate file observations are not one filesystem snapshot.
+        """
+        if type(limit) is not int or not 1 <= limit <= 10:
+            raise ValueError("audit limit must be an integer from 1 to 10")
+        page = self.list_page(limit=limit, after=after)
+        with self._connection() as db:
+            root = self._root(db)
+        counts = dict.fromkeys(
+            ("matches", "drifted", "missing", "unreadable", "rejected"), 0
+        )
+        results = []
+        for record in page["records"]:
+            item = {
+                "id": record["id"],
+                "expected_sha256": record["sha256"],
+                "expected_size_bytes": record["size_bytes"],
+                "observed_sha256": None,
+                "observed_size_bytes": None,
+            }
+            try:
+                digest, size = self._observe(root, record["relative_path"])
+            except FileNotFoundError:
+                status = "missing"
+            except OSError:
+                status = "unreadable"
+            except ValueError:
+                status = "rejected"
+            else:
+                item.update(observed_sha256=digest, observed_size_bytes=size)
+                status = (
+                    "matches"
+                    if digest == record["sha256"] and size == record["size_bytes"]
+                    else "drifted"
+                )
+            item["status"] = status
+            counts[status] += 1
+            results.append(item)
+        return {
+            "schema_version": 1,
+            "results": results,
+            "counts": counts,
+            "has_more": page["has_more"],
+            "next_after": page["next_after"],
+            "checkpoint_validity_verified": False,
+            "complete_registry_audit": False,
+        }
