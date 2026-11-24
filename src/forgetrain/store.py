@@ -242,7 +242,9 @@ class Store:
             db.execute("UPDATE jobs SET state='cancelled' WHERE name=?", (name,))
             self._event(db, name, "cancelled", row["fence"], now)
 
-    def snapshot(self) -> dict[str, Any]:
+    def snapshot(self, *, event_limit: int | None = None) -> dict[str, Any]:
+        if event_limit is not None:
+            _integer(event_limit, "event limit", 0, 1000)
         with self._connection() as db:
             # One read transaction keeps metadata/jobs/events in the same snapshot.
             db.execute("BEGIN")
@@ -255,13 +257,28 @@ class Store:
                     "SELECT name,cpus,state,fence,deadline FROM jobs ORDER BY ordinal"
                 )
             ]
-            events = [
-                dict(row) for row in db.execute("SELECT * FROM events ORDER BY seq")
-            ]
-            return {
+            if event_limit is None:
+                events = [
+                    dict(row) for row in db.execute("SELECT * FROM events ORDER BY seq")
+                ]
+            else:
+                events = [
+                    dict(row)
+                    for row in db.execute(
+                        "SELECT * FROM (SELECT * FROM events "
+                        "ORDER BY seq DESC LIMIT ?) "
+                        "ORDER BY seq",
+                        (event_limit,),
+                    )
+                ]
+            result: dict[str, Any] = {
                 "schema_version": 1,
                 "capacity": meta["capacity"],
                 "clock": meta["clock"],
                 "jobs": jobs,
                 "events": events,
             }
+            if event_limit is not None:
+                count = db.execute("SELECT COUNT(*) FROM events").fetchone()[0]
+                result.update(event_count=count, events_truncated=count > len(events))
+            return result

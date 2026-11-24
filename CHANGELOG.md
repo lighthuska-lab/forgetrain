@@ -14,3 +14,6 @@ fencing, concurrent renewal/completion tests and rollback coverage.
 
 Unreleased: bounded local artifact hashing, immutable provenance registration,
 verification of file drift and transactional/concurrency/crash regression tests.
+
+Unreleased: bounded durable-state CLI, strict versioned lease receipt files,
+opt-in bounded event snapshots and subprocess persistence/failure tests.
