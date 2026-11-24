@@ -7,7 +7,7 @@ python -m forgetrain.artifact_cli audit artifacts.sqlite --limit 5 --after previ
 
 Audits one exclusive-ID keyset page from the immutable registry. Limits are 1–10
 artifacts (default 5). Existing per-file hashing permits at most 64 MiB each, so a
-page reads at most 640 MiB. No checkpoint is deserialized or executed. No content
+page reads at most 650 MiB including one growth-detection chunk per file. No checkpoint is deserialized or executed. No content
 bytes, paths or exception messages are exported; reports contain IDs, expected
 hash/size, successful observed hash/size and exact outcome counts.
 

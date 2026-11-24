@@ -281,7 +281,8 @@ class ArtifactRegistry:
     def audit_page(self, *, limit: int = 5, after: str | None = None) -> dict[str, Any]:
         """Hash at most ten selected artifacts; preserve failures as redacted outcomes.
 
-        Reads at most 640 MiB in total (ten existing 64 MiB per-file limits).
+        Reads at most 650 MiB including bounded growth-detection chunks.
+        Accepted files remain capped at 64 MiB each.
         Pages and separate file observations are not one filesystem snapshot.
         """
         if type(limit) is not int or not 1 <= limit <= 10:
