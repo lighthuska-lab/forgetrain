@@ -64,7 +64,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("database", type=Path)
     create.add_argument("plan", type=Path)
     create.add_argument("--capacity", type=int, required=True)
-    for command in ("admit", "renew", "finish", "cancel", "status"):
+    for command in ("admit", "renew", "finish", "cancel", "retry", "status"):
         child = commands.add_parser(command)
         child.add_argument("database", type=Path)
         if command in {"renew", "finish"}:
@@ -73,9 +73,11 @@ def _parser() -> argparse.ArgumentParser:
             child.add_argument(
                 "--outcome", choices=("succeeded", "failed", "cancelled"), required=True
             )
-        if command == "cancel":
+        if command in {"cancel", "retry"}:
             child.add_argument("job")
-        if command in {"admit", "renew", "finish", "cancel"}:
+        if command == "retry":
+            child.add_argument("--max-attempts", type=int, required=True)
+        if command in {"admit", "renew", "finish", "cancel", "retry"}:
             child.add_argument(
                 "--now", type=int, required=True, help="nondecreasing milliseconds"
             )
@@ -114,6 +116,11 @@ def main(argv: list[str] | None = None) -> int:
                 assert receipt is not None
                 store.finish(receipt, outcome=args.outcome, now=args.now)
                 report.update(job=receipt.job, outcome=args.outcome)
+            elif args.command == "retry":
+                store.retry_failed(
+                    args.job, now=args.now, max_attempts=args.max_attempts
+                )
+                report.update(job=args.job, outcome="pending")
             elif args.command == "cancel":
                 store.cancel_pending(args.job, now=args.now)
                 report.update(job=args.job, outcome="cancelled")

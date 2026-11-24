@@ -56,6 +56,35 @@ class StateCLITests(unittest.TestCase):
     def save(self, receipt):
         self.receipt.write_text(json.dumps(receipt))
 
+    def test_retry_cli_reopens_failed_job_and_rejects_exhausted_bound(self):
+        self.create()
+        old = self.admit()["leases"][0]
+        self.save(old)
+        self.command(
+            "finish",
+            self.database,
+            "--receipt",
+            self.receipt,
+            "--now",
+            1,
+            "--outcome",
+            "failed",
+        )
+        before = Store(self.database).snapshot()
+        self.command(
+            "retry", self.database, "prepare", "--now", 2, "--max-attempts", 1, code=2
+        )
+        self.assertEqual(Store(self.database).snapshot(), before)
+        result = self.command(
+            "retry", self.database, "prepare", "--now", 2, "--max-attempts", 2
+        )
+        self.assertEqual(result["outcome"], "pending")
+        fresh = self.admit(now=3)["leases"][0]
+        self.assertEqual(fresh["fence"], old["fence"] + 1)
+        self.command(
+            "retry", self.database, "prepare", "--now", 4, "--max-attempts", 3, code=2
+        )
+
     def test_persisted_create_admit_renew_finish_and_dependency_progress(self):
         created = self.create()
         self.assertEqual(created["state"]["jobs"][0]["state"], "pending")

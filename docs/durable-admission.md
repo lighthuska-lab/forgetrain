@@ -69,3 +69,21 @@ relative paths passed to `Store.create` and `Store`. Changing the process workin
 directory later does not redirect reads or mutations to another same-named database.
 This is path binding, not protection against replacing a trusted database file or
 changing its ancestors; the existing trusted local filesystem assumptions apply.
+
+## Explicit failure retry
+
+`store.retry_failed(name, now=..., max_attempts=...)` requeues only a failed job.
+The explicit bound is an integer1–1000 on total admissions for this request,
+including the original admission. The stored fence counts admissions: retry is
+rejected when fence >= max_attempts. Requeue keeps the fence and reserves no CPU;
+normal `admit` later applies dependencies/capacity and increments the fence. Old
+receipts remain stale. Retrying does not restart any process or load a checkpoint.
+
+The attempt limit is caller policy for this explicit request, not a persisted
+immutable plan limit. An authorized caller may intentionally choose a higher bound
+later. Existing expiry-based automatic requeue is unchanged and is not capped by
+this API. There is no retry loop, automatic failure recovery, or global attempt
+budget. Pending, running, succeeded and cancelled jobs cannot use this transition.
+Invalid requests roll back caller-clock advancement and any incidental expiries.
+Concurrent requests serialize: a failed state can be requeued only once before
+another admission/failure. Events record `retry_requested` with the prior fence.
