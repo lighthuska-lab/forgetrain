@@ -36,7 +36,8 @@ class Store:
     """
 
     def __init__(self, path: str | Path):
-        self.path = Path(path)
+        # Bind once: later process cwd changes must not redirect store operations.
+        self.path = Path(path).resolve(strict=True)
         if not self.path.is_file():
             raise FileNotFoundError(self.path)
 
@@ -82,7 +83,7 @@ class Store:
     def _connection(self) -> Iterator[sqlite3.Connection]:
         # Read-write URI mode refuses a missing DB instead of creating one.
         db = sqlite3.connect(
-            self.path.resolve().as_uri() + "?mode=rw",
+            self.path.as_uri() + "?mode=rw",
             uri=True,
             timeout=5,
             isolation_level=None,
