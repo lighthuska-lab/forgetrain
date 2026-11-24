@@ -55,3 +55,11 @@ A separate [local artifact registry](docs/artifact-registry.md) records bounded
 file SHA-256, byte size and immutable declared provenance. Run
 `python examples/artifact_demo.py` after installation for a disposable synthetic
 demo. This does not load, authenticate or validate trained checkpoints.
+
+## Durable CLI
+
+Use `python -m forgetrain.state` for exclusive create, admit, renew, finish,
+pending cancellation and bounded status reports. Strict versioned JSON receipts
+compose the existing transactional store; no commands or workers are executed.
+See [CLI examples and limits](docs/state-cli.md). The original planner CLI remains
+compatible.
