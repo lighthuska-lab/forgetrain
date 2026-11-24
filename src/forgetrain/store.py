@@ -234,6 +234,28 @@ class Store:
             self._event(db, lease.job, "renewed", lease.fence, now)
             return Lease(lease.job, lease.fence, deadline)
 
+    def retry_failed(self, name: str, *, now: int, max_attempts: int) -> None:
+        """Explicitly requeue one failure without resetting its admission fence.
+
+        The caller supplies a finite bound on total admissions for this request.
+        Existing lease-expiry requeue semantics are unchanged; this is not a
+        persisted automatic retry policy or a process/checkpoint restart.
+        """
+        if not isinstance(name, str) or not re.fullmatch(
+            r"[a-z][a-z0-9_-]{0,63}", name
+        ):
+            raise ValueError("invalid retry job name")
+        _integer(max_attempts, "attempt limit", 1, 1000)
+        with self._transaction() as db:
+            self._advance(db, now)
+            row = db.execute("SELECT * FROM jobs WHERE name=?", (name,)).fetchone()
+            if row is None or row["state"] != "failed":
+                raise ValueError("only a failed job can be explicitly retried")
+            if row["fence"] >= max_attempts:
+                raise ValueError("retry admission limit exhausted")
+            db.execute("UPDATE jobs SET state='pending' WHERE name=?", (name,))
+            self._event(db, name, "retry_requested", row["fence"], now)
+
     def cancel_pending(self, name: str, *, now: int) -> None:
         with self._transaction() as db:
             self._advance(db, now)

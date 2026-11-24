@@ -36,6 +36,77 @@ class StoreTests(unittest.TestCase):
         self.path = Path(self.temp.name) / "jobs.sqlite"
         self.store = Store.create(self.path, plan(), capacity=2)
 
+    def test_explicit_failed_retry_preserves_fence_capacity_and_dependencies(self):
+        (old,) = self.store.admit(now=0, lease_ms=10)
+        self.store.finish(old, outcome="failed", now=1)
+        self.assertEqual(self.store.admit(now=2, lease_ms=10), ())
+        Store(self.path).retry_failed("prepare", now=3, max_attempts=2)
+        snapshot = self.store.snapshot()
+        self.assertEqual(snapshot["jobs"][0]["state"], "pending")
+        self.assertEqual(snapshot["jobs"][0]["fence"], 1)
+        self.assertEqual(snapshot["events"][-1]["kind"], "retry_requested")
+        (fresh,) = Store(self.path).admit(now=4, lease_ms=10)
+        self.assertEqual(fresh.fence, 2)
+        before = self.store.snapshot()
+        with self.assertRaises(ValueError):
+            self.store.finish(old, outcome="succeeded", now=5)
+        self.assertEqual(self.store.snapshot(), before)
+        self.store.finish(fresh, outcome="succeeded", now=5)
+        (dependent,) = self.store.admit(now=6, lease_ms=10)
+        self.assertEqual(dependent.job, "train")
+
+    def test_retry_limit_invalid_options_and_terminal_states_do_not_mutate(self):
+        (receipt,) = self.store.admit(now=0, lease_ms=10)
+        self.store.finish(receipt, outcome="failed", now=1)
+        before = self.store.snapshot()
+        for limit in (True, 0, -1, 1001, 1.5, "2", 1):
+            with self.subTest(limit=limit), self.assertRaises(ValueError):
+                self.store.retry_failed("prepare", now=2, max_attempts=limit)
+            self.assertEqual(self.store.snapshot(), before)
+        for name in ("train", "missing", "../prepare", None):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                self.store.retry_failed(name, now=2, max_attempts=2)
+            self.assertEqual(self.store.snapshot(), before)
+        self.store.retry_failed("prepare", now=2, max_attempts=2)
+        (second,) = self.store.admit(now=3, lease_ms=10)
+        self.store.finish(second, outcome="failed", now=4)
+        before = self.store.snapshot()
+        with self.assertRaises(ValueError):
+            self.store.retry_failed("prepare", now=5, max_attempts=2)
+        self.assertEqual(self.store.snapshot(), before)
+
+    def test_concurrent_retry_requests_requeue_only_once(self):
+        (receipt,) = self.store.admit(now=0, lease_ms=10)
+        self.store.finish(receipt, outcome="failed", now=1)
+        barrier = threading.Barrier(4)
+
+        def retry(_):
+            barrier.wait(timeout=10)
+            try:
+                Store(self.path).retry_failed("prepare", now=2, max_attempts=2)
+                return True
+            except ValueError:
+                return False
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
+            self.assertEqual(sum(pool.map(retry, range(4))), 1)
+        events = self.store.snapshot()["events"]
+        self.assertEqual(sum(event["kind"] == "retry_requested" for event in events), 1)
+
+    def test_rejected_retry_rolls_back_other_job_expiry_and_clock(self):
+        path = Path(self.temp.name) / "independent.sqlite"
+        store = Store.create(path, plan(True), capacity=4)
+        receipts = store.admit(now=0, lease_ms=10)
+        store.finish(receipts[0], outcome="failed", now=1)
+        before = store.snapshot()
+        with self.assertRaises(ValueError):
+            store.retry_failed(receipts[0].job, now=10, max_attempts=1)
+        self.assertEqual(store.snapshot(), before)
+        store.retry_failed(receipts[0].job, now=10, max_attempts=2)
+        self.assertTrue(
+            all(job["state"] == "pending" for job in store.snapshot()["jobs"])
+        )
+
     def test_relative_store_remains_bound_when_working_directory_changes(self):
         original_cwd = Path.cwd()
         first = Path(self.temp.name) / "first"

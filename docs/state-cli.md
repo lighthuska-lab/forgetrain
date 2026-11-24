@@ -66,3 +66,15 @@ Tests launch real subprocesses for create/admit/renew/finish/cancel/status, insp
 persisted restart state, reject stale receipts and malformed/oversized JSON,
 exercise exact expiry and backwards clocks, and preserve the existing planner CLI.
 No training performance, model inference or paid infrastructure is involved.
+
+Explicitly requeue a terminal failure with a finite caller-selected admission bound:
+
+```sh
+python -m forgetrain.state retry jobs.sqlite prepare --now 12 --max-attempts 3
+```
+
+This changes failed to pending only. It does not execute a job or reserve capacity.
+The limit includes prior admissions; expiry-driven requeue and authorized later
+changes to caller retry policy remain outside this per-request bound. Invalid or
+exhausted requests exit2 without success output or state changes. See the durable
+admission document for fencing, concurrency and rollback semantics.
