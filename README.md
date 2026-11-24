@@ -63,3 +63,10 @@ pending cancellation and bounded status reports. Strict versioned JSON receipts
 compose the existing transactional store; no commands or workers are executed.
 See [CLI examples and limits](docs/state-cli.md). The original planner CLI remains
 compatible.
+
+## Artifact CLI
+
+Use `python -m forgetrain.artifact_cli` for exclusive registry creation, strict
+JSON registration, actual byte verification and bounded cursor-paginated listing.
+See [commands, limits and exit codes](docs/artifact-cli.md). Listing recorded
+metadata does not verify current bytes or checkpoint validity.

@@ -236,6 +236,33 @@ class ArtifactRegistry:
                 raise KeyError(artifact_id)
             return dict(row)
 
+    def list_page(self, *, limit: int = 20, after: str | None = None) -> dict[str, Any]:
+        """Read at most 100 records plus one lookahead, ordered by immutable ID.
+
+        Cursors are exclusive artifact IDs, not offsets. Separate pages are not
+        one global snapshot if new IDs are registered between requests.
+        """
+        if type(limit) is not int or not 1 <= limit <= 100:
+            raise ValueError("page limit must be an integer from 1 to 100")
+        if after is not None:
+            after = _identifier(after)
+        with self._connection() as db:
+            db.execute("BEGIN")
+            self._root(db)
+            rows = db.execute(
+                "SELECT * FROM artifacts WHERE id > ? ORDER BY id LIMIT ?",
+                (after if after is not None else "", limit + 1),
+            ).fetchall()
+            records = [dict(row) for row in rows[:limit]]
+            more = len(rows) > limit
+            return {
+                "schema_version": 1,
+                "records": records,
+                "content_files_verified": False,
+                "has_more": more,
+                "next_after": records[-1]["id"] if more else None,
+            }
+
     def verify(self, artifact_id: str) -> dict[str, Any]:
         record = self.get(artifact_id)
         with self._connection() as db:
