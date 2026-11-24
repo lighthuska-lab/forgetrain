@@ -63,3 +63,9 @@ clock and the renewed audit event commit together or roll back together. A
 renewal preserves the CPU reservation; it does not reserve capacity a second time.
 These receipts remain a cooperative database protocol, not worker authentication,
 a process liveness guarantee or fencing for external writes.
+
+A store binds its database to the resolved absolute path at construction, including
+relative paths passed to `Store.create` and `Store`. Changing the process working
+directory later does not redirect reads or mutations to another same-named database.
+This is path binding, not protection against replacing a trusted database file or
+changing its ancestors; the existing trusted local filesystem assumptions apply.

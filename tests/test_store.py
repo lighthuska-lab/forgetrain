@@ -1,4 +1,5 @@
 import concurrent.futures
+import os
 import sqlite3
 import subprocess
 import sys
@@ -34,6 +35,29 @@ class StoreTests(unittest.TestCase):
         self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name) / "jobs.sqlite"
         self.store = Store.create(self.path, plan(), capacity=2)
+
+    def test_relative_store_remains_bound_when_working_directory_changes(self):
+        original_cwd = Path.cwd()
+        first = Path(self.temp.name) / "first"
+        second = Path(self.temp.name) / "second"
+        first.mkdir()
+        second.mkdir()
+        other = Store.create(second / "jobs.sqlite", plan(), capacity=4)
+        try:
+            os.chdir(first)
+            created = Store.create("jobs.sqlite", plan(), capacity=2)
+            reopened = Store("jobs.sqlite")
+            os.chdir(second)
+            for bound in (created, reopened):
+                self.assertEqual(bound.snapshot()["capacity"], 2)
+            (receipt,) = reopened.admit(now=0, lease_ms=10)
+            self.assertEqual(receipt.job, "prepare")
+            self.assertEqual(other.snapshot()["events"], [])
+            self.assertEqual(
+                Store(first / "jobs.sqlite").snapshot()["events"][0]["kind"], "admitted"
+            )
+        finally:
+            os.chdir(original_cwd)
 
     def test_dependency_progress_and_durable_restart(self):
         (first,) = self.store.admit(now=0, lease_ms=10)
