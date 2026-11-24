@@ -70,3 +70,7 @@ Use `python -m forgetrain.artifact_cli` for exclusive registry creation, strict
 JSON registration, actual byte verification and bounded cursor-paginated listing.
 See [commands, limits and exit codes](docs/artifact-cli.md). Listing recorded
 metadata does not verify current bytes or checkpoint validity.
+
+Audit a bounded registry page with
+`python -m forgetrain.artifact_cli audit artifacts.sqlite --limit 5`.
+See [artifact audit](docs/artifact-audit.md) for statuses, cursors and limits.

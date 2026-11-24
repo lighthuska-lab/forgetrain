@@ -36,7 +36,7 @@ def _metadata(path: Path) -> dict[str, Any]:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    for name in ("create", "register", "verify", "list"):
+    for name in ("create", "register", "verify", "list", "audit"):
         child = commands.add_parser(name)
         child.add_argument("database", type=Path)
         if name == "create":
@@ -46,7 +46,9 @@ def _parser() -> argparse.ArgumentParser:
         elif name == "verify":
             child.add_argument("artifact_id")
         else:
-            child.add_argument("--limit", type=int, default=20)
+            child.add_argument(
+                "--limit", type=int, default=5 if name == "audit" else 20
+            )
             child.add_argument("--after")
     return parser
 
@@ -75,6 +77,14 @@ def main(argv: list[str] | None = None) -> int:
                 result = registry.verify(args.artifact_id)
                 report["verification"] = result
                 exit_code = 0 if result["matches"] else 1
+            elif args.command == "audit":
+                audit = registry.audit_page(limit=args.limit, after=args.after)
+                report["audit"] = audit
+                exit_code = (
+                    0
+                    if all(row["status"] == "matches" for row in audit["results"])
+                    else 1
+                )
             else:
                 report["page"] = registry.list_page(limit=args.limit, after=args.after)
         serialized = json.dumps(report, sort_keys=True, allow_nan=False)
