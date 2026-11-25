@@ -64,7 +64,7 @@ def _parser() -> argparse.ArgumentParser:
     create.add_argument("database", type=Path)
     create.add_argument("plan", type=Path)
     create.add_argument("--capacity", type=int, required=True)
-    for command in ("admit", "renew", "finish", "cancel", "retry", "status"):
+    for command in ("admit", "renew", "finish", "cancel", "retry", "status", "events"):
         child = commands.add_parser(command)
         child.add_argument("database", type=Path)
         if command in {"renew", "finish"}:
@@ -83,6 +83,10 @@ def _parser() -> argparse.ArgumentParser:
             )
         if command in {"admit", "renew"}:
             child.add_argument("--lease-ms", type=int, required=True)
+        if command == "events":
+            child.add_argument("--after-seq", type=int, default=0)
+            child.add_argument("--through-seq", type=int)
+            child.add_argument("--limit", type=int, default=20)
         if command == "status":
             child.add_argument("--event-limit", type=int, default=100)
     return parser
@@ -124,6 +128,12 @@ def main(argv: list[str] | None = None) -> int:
             elif args.command == "cancel":
                 store.cancel_pending(args.job, now=args.now)
                 report.update(job=args.job, outcome="cancelled")
+            elif args.command == "events":
+                report["page"] = store.event_page(
+                    after_seq=args.after_seq,
+                    through_seq=args.through_seq,
+                    limit=args.limit,
+                )
             else:
                 report["state"] = store.snapshot(event_limit=args.event_limit)
         serialized = json.dumps(report, sort_keys=True, allow_nan=False)

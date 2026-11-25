@@ -265,6 +265,51 @@ class Store:
             db.execute("UPDATE jobs SET state='cancelled' WHERE name=?", (name,))
             self._event(db, name, "cancelled", row["fence"], now)
 
+    def event_page(
+        self,
+        *,
+        after_seq: int = 0,
+        limit: int = 20,
+        through_seq: int | None = None,
+    ) -> dict[str, Any]:
+        """Read a bounded event prefix without advancing time or expiring leases.
+
+        Reuse the first page's through_seq on later pages to exclude new appends.
+        Local database contents/host are trusted; declarations are not an audit
+        or execution attestation. At most limit+1 event rows are read.
+        """
+        _integer(after_seq, "event cursor", 0, 2**63 - 1)
+        _integer(limit, "event page limit", 1, 100)
+        if through_seq is not None:
+            _integer(through_seq, "event prefix", 0, 2**63 - 1)
+        with self._connection() as db:
+            db.execute("BEGIN")
+            meta = db.execute("SELECT version FROM meta").fetchone()
+            if meta is None or meta["version"] != 1:
+                raise ValueError("unsupported store schema")
+            maximum = db.execute("SELECT COALESCE(MAX(seq), 0) FROM events").fetchone()[
+                0
+            ]
+            upper = maximum if through_seq is None else through_seq
+            if upper > maximum:
+                raise ValueError("event prefix exceeds observed high watermark")
+            rows = db.execute(
+                "SELECT seq,job,kind,fence,clock FROM events "
+                "WHERE seq>? AND seq<=? ORDER BY seq LIMIT ?",
+                (after_seq, upper, limit + 1),
+            ).fetchall()
+            events = [dict(row) for row in rows[:limit]]
+            return {
+                "schema_version": 1,
+                "kind": "scheduler-event-page",
+                "after_seq": after_seq,
+                "through_seq": upper,
+                "limit": limit,
+                "events": events,
+                "has_more": len(rows) > limit,
+                "next_after_seq": events[-1]["seq"] if events else after_seq,
+            }
+
     def snapshot(self, *, event_limit: int | None = None) -> dict[str, Any]:
         if event_limit is not None:
             _integer(event_limit, "event limit", 0, 1000)
