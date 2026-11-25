@@ -74,3 +74,8 @@ metadata does not verify current bytes or checkpoint validity.
 Audit a bounded registry page with
 `python -m forgetrain.artifact_cli audit artifacts.sqlite --limit 5`.
 See [artifact audit](docs/artifact-audit.md) for statuses, cursors and limits.
+
+Inspect durable history without loading it all using
+`python -m forgetrain.state events jobs.sqlite --limit 20`.
+[Event pages](docs/event-pages.md) explain stable-prefix continuation and read-only
+logical-state behavior; event declarations do not attest worker execution.

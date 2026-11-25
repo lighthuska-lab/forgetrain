@@ -20,3 +20,6 @@ opt-in bounded event snapshots and subprocess persistence/failure tests.
 
 Unreleased: bounded artifact registry CLI and indexed keyset pagination, with
 subprocess persistence, idempotence, conflict, drift and malformed-input tests.
+
+Unreleased: bounded keyset event-history pages with reusable prefix watermarks,
+read-only logical-state semantics and CLI persistence/bounds/continuation tests.
